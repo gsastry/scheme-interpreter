@@ -17,6 +17,8 @@ data LispVal = Atom String
 	     | String String
 	     | Bool Bool
 
+-- Make LispVal a member of the typeclass `Show`
+instance Show LispVal where show = showVal
 
 -- read a command line argument and attempt to parse the argument
 -- as an expression.
@@ -37,7 +39,7 @@ spaces = skipMany1 space
 -- `"`.
 parseString :: Parser LispVal
 parseString = do char '"'
-		 x <- many (nonEscapeChars <|> escapeChars)
+		 x <- many (nonEscapeChars >> escapeChars)
 		 char '"'
 		 return $ String x
 
@@ -105,4 +107,22 @@ parseExpr = parseAtom
 readExpr :: String -> String
 readExpr input = case parse parseExpr "lisp" input of
 		      Left err -> "No match: " ++ show err
-		      Right val -> "Found value"
+		      Right val -> "Found " ++ show val
+
+-- `showVal`
+-- Print out a string representation of possible LispVals
+showVal :: LispVal -> String
+showVal (String contents) = "\"" ++ contents ++ "\""
+showVal (Atom name) = name
+showVal (Number contents) = show contents
+showVal (Bool True) = "#t"
+showVal (Bool False) = "#f"
+showVal (List contents) = "(" ++ unwordsList contents ++ ")"
+showVal (DottedList head tail) =
+    "(" ++ unwordsList head ++ " . " ++ showVal tail ++ ")"
+
+
+-- `unwordsList`
+-- Glue together the contents of a [LispVal] with spaces (like `unwords`)
+unwordsList :: [LispVal] -> String
+unwordsList = unwords . map showVal
