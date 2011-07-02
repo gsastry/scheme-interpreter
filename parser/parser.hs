@@ -23,8 +23,7 @@ instance Show LispVal where show = showVal
 -- read a command line argument and attempt to parse the argument
 -- as an expression.
 main :: IO ()
-main = do args <- getArgs
-	  putStrLn (readExpr $ args !! 0)
+main = getArgs >>= putStrLn . show . eval . readExpr . (!! 0)
 
 -- a legal symbol is one of these: "!$%&|*+-/;<=>?@^_~"
 symbol :: Parser Char
@@ -39,7 +38,7 @@ spaces = skipMany1 space
 -- `"`.
 parseString :: Parser LispVal
 parseString = do char '"'
-		 x <- many (nonEscapeChars >> escapeChars)
+		 x <- many (nonEscapeChars) <|> many (escapeChars)
 		 char '"'
 		 return $ String x
 
@@ -104,10 +103,10 @@ parseExpr = parseAtom
 -- `readExpr`
 -- take a string and parse it
 -- returns "No match" and an error, or "Found value" if successfully parsed
-readExpr :: String -> String
+readExpr :: String -> LispVal
 readExpr input = case parse parseExpr "lisp" input of
-		      Left err -> "No match: " ++ show err
-		      Right val -> "Found " ++ show val
+		      Left err -> String $ "No match: " ++ show err
+		      Right val -> val
 
 -- `showVal`
 -- Print out a string representation of possible LispVals
@@ -126,3 +125,50 @@ showVal (DottedList head tail) =
 -- Glue together the contents of a [LispVal] with spaces (like `unwords`)
 unwordsList :: [LispVal] -> String
 unwordsList = unwords . map showVal
+
+-- `eval`
+-- The beginnings of an evaluator. An evaluator maps a code data type to a 
+-- a data data type. In our case (and in Lisps) the code is the data.
+eval :: LispVal -> LispVal
+eval val@(String _) = val
+eval val@(Number _) = val
+eval val@(Bool _) = val
+eval (List [Atom "quote", val]) = val
+eval (List (Atom func : args)) = apply func $ map eval args
+
+-- `apply`
+-- Applies a supplied function to a list of arguments (LispVals)
+-- and returns a LispVal
+apply :: String -> [LispVal] -> LispVal
+apply func args = maybe (Bool False) ($ args) $ lookup func primitives
+
+-- `primitives`
+-- A mapping of primitives to their operations in Haskell
+primitives :: [(String, [LispVal] -> LispVal)]
+primitives = [("+", numericBinop (+)),
+	      ("-", numericBinop (-)),
+	      ("*", numericBinop (*)),
+	      ("/", numericBinop div),
+	      ("mod", numericBinop mod),
+	      ("quotient", numericBinop quot),
+	      ("remainder", numericBinop rem)]
+
+-- `numericBinop`
+-- The functions that we store in our primitives mapping are based on 
+-- numericBinop.
+-- numericBinop takes a Haskell primitive function and arguments, folds
+-- that function over the list of arguments, and returns a Number'd answer.
+numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> LispVal
+numericBinop op params = Number $ foldl1 op $ map unpackNum params
+
+-- `unpackNum`
+-- Scheme is dynamically typed. Here, we're implementing weak typing, which
+-- means that if a value CAN be interpreted as a number (for example, the
+-- string "2") then we'll use it as such.
+-- If we can't parse the number, return 0 (for now ... )
+unpackNum :: LispVal -> Integer
+unpackNum (Number n) = n
+unpackNum (String n) = let parsed = reads n in
+			   if null parsed
+			      then 0
+			      else fst $ parsed !! 0
