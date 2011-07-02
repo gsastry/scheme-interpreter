@@ -104,9 +104,12 @@ parseExpr = parseAtom
 -- take a string and parse it
 -- returns "No match" and an error, or "Found value" if successfully parsed
 readExpr :: String -> LispVal
-readExpr input = case parse parseExpr "lisp" input of
-		      Left err -> String $ "No match: " ++ show err
-		      Right val -> val
+readExpr input = readTypedExpr input parseExpr
+
+readTypedExpr :: String -> Parser LispVal -> LispVal
+readTypedExpr input parser = case parse parser "lisp" input of
+				  Left err -> String $ "No match: " ++ show err
+				  Right val -> val
 
 -- `showVal`
 -- Print out a string representation of possible LispVals
@@ -151,7 +154,31 @@ primitives = [("+", numericBinop (+)),
 	      ("/", numericBinop div),
 	      ("mod", numericBinop mod),
 	      ("quotient", numericBinop quot),
-	      ("remainder", numericBinop rem)]
+	      ("remainder", numericBinop rem),
+	      ("atom?", typeTest "atom"),
+	      ("string?", typeTest "string"),
+	      ("number?", typeTest "number"),
+	      ("list?", typeTest "list")]
+
+-- `typeTest`
+-- Tests the given type against the val, and returns true (#t, a LispVal)
+-- if the value is of that type.
+typeTest :: String -> [LispVal] -> LispVal
+typeTest t [val] = if (fst $ findType val) == t
+			then Bool True
+			else Bool False
+typeTest t (val:more) = String $ "Error: too many arguments supplied"
+
+-- `findType`
+-- Matches the val against the possible Lisp data type it could be,
+-- and returns a tuple of a string representing the type and the original
+-- val. (we choose to return the original val also just in case it needs
+-- to be reused).
+findType :: LispVal -> (String, LispVal)
+findType val@(String _) = ("string", val)
+findType val@(Number _) = ("number", val)
+findType val@(Atom _) = ("atom", val)
+findType val@(List _) = ("list", val)
 
 -- `numericBinop`
 -- The functions that we store in our primitives mapping are based on 
@@ -161,14 +188,25 @@ primitives = [("+", numericBinop (+)),
 numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> LispVal
 numericBinop op params = Number $ foldl1 op $ map unpackNum params
 
--- `unpackNum`
+-- `unpackNum'`
 -- Scheme is dynamically typed. Here, we're implementing weak typing, which
 -- means that if a value CAN be interpreted as a number (for example, the
 -- string "2") then we'll use it as such.
 -- If we can't parse the number, return 0 (for now ... )
-unpackNum :: LispVal -> Integer
-unpackNum (Number n) = n
-unpackNum (String n) = let parsed = reads n in
+unpackNum' :: LispVal -> Integer
+unpackNum' (Number n) = n
+unpackNum' (String n) = let parsed = reads n in
 			   if null parsed
 			      then 0
 			      else fst $ parsed !! 0
+unpackNum' (List [n]) = unpackNum n
+unpackNum' _ = 0
+
+-- `unpackNum`
+-- Rewritten version of unpackNum'
+-- Always return 0 if the value is not a number, even its a string/list
+-- that can be parsed as a number
+unpackNum :: LispVal -> Integer
+unpackNum (Number n) = n
+unpackNum _ = 0
+
